@@ -1,0 +1,64 @@
+import boto3
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+iot_client = boto3.client('iot')
+sns_client = boto3.client('sns')
+
+# SNS topic ARN
+SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:110944638581:OverlyPermissivePolicyAlertIoT'
+
+def lambda_handler(event, context):
+    logger.info(f"Received event: {json.dumps(event)}")
+
+    # Check if 'detail' and other required keys exist in the event
+    if 'detail' in event and 'violatingPolicyDetails' in event['detail'] and 'policyName' in event['detail']['violatingPolicyDetails']:
+        policy_name = event['detail']['violatingPolicyDetails']['policyName']
+        account_id = event['account'] if 'account' in event else 'unknown'
+        
+        try:
+            # Get the current policy document
+            policy_document = iot_client.get_policy(policyName=policy_name)['policyDocument']
+            policy_document_json = json.loads(policy_document)
+            
+            # Modify the policy document to make it less permissive
+            for statement in policy_document_json['Statement']:
+                if statement['Effect'] == 'Allow' and '*' in statement['Action']:
+                    statement['Action'] = 'iot:Connect'
+            
+            # Update the policy with the modified document
+            iot_client.create_policy(
+                policyName=policy_name,
+                policyDocument=json.dumps(policy_document_json)
+            )
+            
+            # Notify via SNS
+            message = f"Policy '{policy_name}' in account '{account_id}' was overly permissive and has been mitigated."
+            sns_client.publish(TopicArn=SNS_TOPIC_ARN, Message=message)
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps('Policy mitigated successfully.')
+            }
+            
+        except Exception as e:
+            # Handle any errors that occurred during mitigation
+            error_message = f"Failed to mitigate policy '{policy_name}': {str(e)}"
+            logger.error(error_message)
+            sns_client.publish(TopicArn=SNS_TOPIC_ARN, Message=error_message)
+            return {
+                'statusCode': 500,
+                'body': json.dumps(error_message)
+            }
+    else:
+        # Log and handle the case where the event doesn't have the expected structure
+        error_message = "Event structure is invalid or missing required keys."
+        logger.error(error_message)
+        sns_client.publish(TopicArn=SNS_TOPIC_ARN, Message=error_message)
+        return {
+            'statusCode': 400,
+            'body': json.dumps(error_message)
+        }
