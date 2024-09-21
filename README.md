@@ -1,1 +1,1 @@
-IoT-Security-Configuration-Audit-in-AWS-Cloud ensures 
+IoT-Security-Configuration-Audit-in-AWS-Cloud provides a standard framework approach to implement and adapt to a continuous security configuration audit for the IoT devices connecting to the AWS Cloud Infrastructure.
